@@ -1,1 +1,1 @@
-module github.com/nickng/migo/v3
+module github.com/jujuyuki/migo/v3

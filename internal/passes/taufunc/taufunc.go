@@ -28,8 +28,8 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/nickng/migo/v3"
-	"github.com/nickng/migo/v3/internal/ctrlflow"
+	"github.com/jujuyuki/migo/v3"
+	"github.com/jujuyuki/migo/v3/internal/ctrlflow"
 )
 
 // Find finds function definitions from Program prog

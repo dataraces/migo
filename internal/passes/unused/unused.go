@@ -6,8 +6,8 @@
 package unused
 
 import (
-	"github.com/nickng/migo/internal/ctrlflow"
-	"github.com/nickng/migo/v3"
+	"github.com/jujuyuki/migo/v3/internal/ctrlflow"
+	"github.com/jujuyuki/migo/v3"
 )
 
 // Remove removes all unused functions from Program prog except entry.

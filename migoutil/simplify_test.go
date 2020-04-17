@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nickng/migo/v3"
-	"github.com/nickng/migo/v3/migoutil"
-	"github.com/nickng/migo/v3/parser"
+	"github.com/jujuyuki/migo/v3"
+	"github.com/jujuyuki/migo/v3/migoutil"
+	"github.com/jujuyuki/migo/v3/parser"
 )
 
 // ErrFuncNotExists is Error if function does not exist in program which is
