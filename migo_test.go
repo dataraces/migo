@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jujuyuki/migo/v3"
-	"github.com/jujuyuki/migo/v3/parser"
+	"github.com/jujuyuki/migo"
+	"github.com/jujuyuki/migo/parser"
 )
 
 // Test simplifying name.

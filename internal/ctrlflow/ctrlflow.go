@@ -7,7 +7,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/jujuyuki/migo/v3"
+	"github.com/jujuyuki/migo"
 )
 
 // Graph is a control flow graph.

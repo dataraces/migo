@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jujuyuki/migo/v3"
+	"github.com/jujuyuki/migo"
 )
 
 func TestParser(t *testing.T) {

@@ -4,7 +4,7 @@ package parser
 import (
 	"io"
 
-	"github.com/jujuyuki/migo/v3"
+	"github.com/jujuyuki/migo"
 )
 
 var prog *migo.Program
