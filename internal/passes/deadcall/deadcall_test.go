@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jujuyuki/migo"
-	"github.com/jujuyuki/migo/parser"
+	"github.com/jujuyuki/migo/v3"
+	"github.com/jujuyuki/migo/v3/parser"
 )
 
 func TestRemoveUndefined(t *testing.T) {
