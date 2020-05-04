@@ -24,16 +24,19 @@ func (r undefRemover) traverse(stmts *[]migo.Statement) {
 		case *migo.IfStatement:
 			r.traverse(&stmt.Then)
 			r.traverse(&stmt.Else)
+			isThenTau, isElseTau := false, false
 			if len(stmt.Then) == 1 {
-				_, isThenTau := stmt.Then[0].(*migo.TauStatement)
-				if len(stmt.Else) == 1 {
-					_, isElseTau := stmt.Else[0].(*migo.TauStatement)
-					if isThenTau && isElseTau { // if tau; else tau; endif;
-						ss[i] = nil
-						ss = append(ss[:i], ss[i+1:]...)
-						i--
-					}
-				}
+				_, isThenTau = stmt.Then[0].(*migo.TauStatement)
+			}
+			if len(stmt.Else) == 1 {
+				_, isElseTau = stmt.Else[0].(*migo.TauStatement)
+			}
+			if isThenTau && isElseTau { // if tau; else tau; endif;
+				ss[i] = nil
+				ss = append(ss[:i], ss[i+1:]...)
+				i--
+			} else if isElseTau || isThenTau { // only one branch is tau
+				ss[i] = stmt
 			}
 		case *migo.SpawnStatement:
 			if _, found := r.prog.Function(stmt.Name); !found {
