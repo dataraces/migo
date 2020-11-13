@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"fmt"
 	"go/token"
+	"log"
 	"strings"
 )
 
 var (
 	nameFilter = strings.NewReplacer("(", "", ")", "", "*", "", "/", "_", "\"", "", "-", "")
+	noPosition = token.Position{Line: 0}
 )
 
 // NamedVar is a named variable.
@@ -102,6 +104,29 @@ func (p *Program) String() string {
 	return buf.String()
 }
 
+func (p Program) PrintWithProperties(props Properties) string {
+	var buf bytes.Buffer
+	main, _ := p.Function("\"main\".main")
+
+	buf.WriteString(main.PrintWithProperties(props))
+
+	for _, f := range p.Funcs {
+		if f.SimpleName() != "main.main" &&
+			!strings.HasPrefix(f.SimpleName(), "os") &&
+			!strings.HasPrefix(f.SimpleName(), "syscall") &&
+			!strings.HasPrefix(f.SimpleName(), "internal_poll") &&
+			!strings.HasPrefix(f.SimpleName(), "sync.o") {
+			buf.WriteString(f.PrintWithProperties(props))
+		}
+	}
+
+	if !props.IsEmpty() {
+		log.Fatalf("Unable to find target location of properties: %v", props.Values())
+	}
+
+	return buf.String()
+}
+
 // Parameter is a translation from caller environment to callee.
 type Parameter struct {
 	Caller NamedVar
@@ -145,18 +170,19 @@ type Function struct {
 	Stmts   []Statement  // Function body (slice of statements).
 	HasComm bool         // Does the function has communication statement?
 
-	stack  *StmtsStack // Stack for working with nested conditionals.
-	pos    token.Pos   // Position of the function in Go source code.
-	varIdx int         // Next fresh variable index.
+	stack  *StmtsStack    // Stack for working with nested conditionals.
+	Pos    token.Position // Position of the function in Go source code.
+	varIdx int            // Next fresh variable index.
 }
 
 // NewFunction creates a new Function using the given name.
-func NewFunction(name string) *Function {
+func NewFunction(name string, pos token.Position) *Function {
 	return &Function{
 		Name:   name,
 		Params: []*Parameter{},
 		Stmts:  []Statement{},
 		stack:  NewStmtsStack(),
+		Pos:    pos,
 	}
 }
 
@@ -252,15 +278,36 @@ func (f *Function) String() string {
 	return buf.String()
 }
 
+func (f *Function) PrintWithProperties(props Properties) string {
+	var buf bytes.Buffer
+	for _, prop := range props.GetProperties(f.Pos) {
+		buf.WriteString(fmt.Sprintf("%s\n", prop))
+	}
+	buf.WriteString(fmt.Sprintf("def %s(%s):\n",
+		f.SimpleName(), CalleeParameterString(f.Params)))
+	if len(f.Stmts) == 0 {
+		f.AddStmts(&TauStatement{})
+	}
+	for _, stmt := range f.Stmts {
+		for _, prop := range props.GetProperties(stmt.Position()) {
+			buf.WriteString(fmt.Sprintf("    %s\n", prop))
+		}
+		buf.WriteString(fmt.Sprintf("    %s;\n", stmt))
+	}
+	return buf.String()
+}
+
 // Statement is a generic statement.
 type Statement interface {
 	String() string
+	Position() token.Position
 }
 
 // CallStatement captures function calls or block jumps in the SSA.
 type CallStatement struct {
 	Name   string
 	Params []*Parameter
+	Pos    token.Position
 }
 
 // SimpleName returns a filtered name.
@@ -288,19 +335,29 @@ func (s *CallStatement) AddParams(params ...*Parameter) {
 	}
 }
 
+func (s *CallStatement) Position() token.Position {
+	return s.Pos
+}
+
 // CloseStatement closes a channel.
 type CloseStatement struct {
 	Chan string // Channel name
+	Pos  token.Position
 }
 
 func (s *CloseStatement) String() string {
 	return fmt.Sprintf("close %s", s.Chan)
 }
 
+func (s *CloseStatement) Position() token.Position {
+	return s.Pos
+}
+
 // SpawnStatement captures spawning of goroutines.
 type SpawnStatement struct {
 	Name   string
 	Params []*Parameter
+	Pos    token.Position
 }
 
 // SimpleName returns a filtered name.
@@ -328,16 +385,25 @@ func (s *SpawnStatement) AddParams(params ...*Parameter) {
 	}
 }
 
+func (s *SpawnStatement) Position() token.Position {
+	return s.Pos
+}
+
 // NewChanStatement creates and names a newly created channel.
 type NewChanStatement struct {
 	Name NamedVar
 	Chan string
 	Size int64
+	Pos  token.Position
 }
 
 func (s *NewChanStatement) String() string {
 	return fmt.Sprintf("let %s = newchan %s, %d",
 		s.Name.Name(), nameFilter.Replace(s.Chan), s.Size)
+}
+
+func (s *NewChanStatement) Position() token.Position {
+	return s.Pos
 }
 
 // IfStatement is a conditional statement.
@@ -360,6 +426,10 @@ func (s *IfStatement) String() string {
 	}
 	buf.WriteString("endif")
 	return buf.String()
+}
+
+func (s *IfStatement) Position() token.Position {
+	return noPosition
 }
 
 // IfForStatement is a conditional statement introduced by a for-loop.
@@ -385,14 +455,19 @@ func (s *IfForStatement) String() string {
 	return buf.String()
 }
 
+func (s *IfForStatement) Position() token.Position {
+	return noPosition
+}
+
 // SelectStatement is non-deterministic choice
 type SelectStatement struct {
 	Cases [][]Statement
+	Pos   token.Position
 }
 
 func (s *SelectStatement) String() string {
 	var buf bytes.Buffer
-	buf.WriteString("select")
+	buf.WriteString(fmt.Sprintf("select"))
 	for _, c := range s.Cases {
 		buf.WriteString("\n      case")
 		for _, stmt := range c {
@@ -403,6 +478,10 @@ func (s *SelectStatement) String() string {
 	return buf.String()
 }
 
+func (s *SelectStatement) Position() token.Position {
+	return s.Pos
+}
+
 // TauStatement is inaction.
 type TauStatement struct{}
 
@@ -410,49 +489,78 @@ func (s *TauStatement) String() string {
 	return "tau"
 }
 
+func (s *TauStatement) Position() token.Position {
+	return noPosition
+}
+
 // SendStatement sends to Chan.
 type SendStatement struct {
 	Chan string
+	Pos  token.Position
 }
 
 func (s *SendStatement) String() string {
 	return fmt.Sprintf("send %s", s.Chan)
 }
 
+func (s *SendStatement) Position() token.Position {
+	return s.Pos
+}
+
 // RecvStatement receives from Chan.
 type RecvStatement struct {
 	Chan string
+	Pos  token.Position
 }
 
 func (s *RecvStatement) String() string {
 	return fmt.Sprintf("recv %s", s.Chan)
 }
 
+func (s *RecvStatement) Position() token.Position {
+	return s.Pos
+}
+
 // NewMem creates a new memory or variable reference.
 type NewMem struct {
 	Name NamedVar
+	Pos  token.Position
 }
 
 func (s *NewMem) String() string {
 	return fmt.Sprintf("letmem %s", s.Name.Name())
 }
 
+func (s *NewMem) Position() token.Position {
+	return s.Pos
+}
+
 // MemRead is a memory read statement.
 type MemRead struct {
 	Name string
+	Pos  token.Position
 }
 
 func (s *MemRead) String() string {
 	return fmt.Sprintf("read %s", nameFilter.Replace(s.Name))
 }
 
+func (s *MemRead) Position() token.Position {
+	return s.Pos
+}
+
 // MemWrite is a memory write statement.
 type MemWrite struct {
 	Name string
+	Pos  token.Position
 }
 
 func (s *MemWrite) String() string {
 	return fmt.Sprintf("write %s", nameFilter.Replace(s.Name))
+}
+
+func (s *MemWrite) Position() token.Position {
+	return s.Pos
 }
 
 // Mutex primitives
@@ -460,28 +568,43 @@ func (s *MemWrite) String() string {
 // NewSyncMutex is a sync.Mutex initialisation statement.
 type NewSyncMutex struct {
 	Name NamedVar
+	Pos  token.Position
 }
 
 func (m *NewSyncMutex) String() string {
 	return fmt.Sprintf("letsync %s mutex", m.Name.Name())
 }
 
+func (s *NewSyncMutex) Position() token.Position {
+	return s.Pos
+}
+
 // SyncMutexLock is a sync.Mutex Lock statement.
 type SyncMutexLock struct {
 	Name string
+	Pos  token.Position
 }
 
 func (m *SyncMutexLock) String() string {
 	return fmt.Sprintf("lock %s", nameFilter.Replace(m.Name))
 }
 
+func (s *SyncMutexLock) Position() token.Position {
+	return s.Pos
+}
+
 // SyncMutexUnlock is a sync.Mutex Unlock statement.
 type SyncMutexUnlock struct {
 	Name string
+	Pos  token.Position
 }
 
 func (m *SyncMutexUnlock) String() string {
 	return fmt.Sprintf("unlock %s", nameFilter.Replace(m.Name))
+}
+
+func (s *SyncMutexUnlock) Position() token.Position {
+	return s.Pos
 }
 
 // RWMutex primitives
@@ -489,26 +612,69 @@ func (m *SyncMutexUnlock) String() string {
 // NewSyncRWMutex is a sync.RWMutex initialisation statement.
 type NewSyncRWMutex struct {
 	Name NamedVar
+	Pos  token.Position
 }
 
 func (m *NewSyncRWMutex) String() string {
 	return fmt.Sprintf("letsync %s rwmutex", m.Name.Name())
 }
 
+func (s *NewSyncRWMutex) Position() token.Position {
+	return s.Pos
+}
+
 // SyncRWMutexRLock is a sync.RWMutex RLock statement.
 type SyncRWMutexRLock struct {
 	Name string
+	Pos  token.Position
 }
 
 func (m *SyncRWMutexRLock) String() string {
 	return fmt.Sprintf("rlock %s", nameFilter.Replace(m.Name))
 }
 
+func (s *SyncRWMutexRLock) Position() token.Position {
+	return s.Pos
+}
+
 // SyncRWMutexRUnlock is a sync.RWMutex RUnlock statement.
 type SyncRWMutexRUnlock struct {
 	Name string
+	Pos  token.Position
 }
 
 func (m *SyncRWMutexRUnlock) String() string {
 	return fmt.Sprintf("runlock %s", nameFilter.Replace(m.Name))
+}
+
+func (s *SyncRWMutexRUnlock) Position() token.Position {
+	return s.Pos
+}
+
+// Maps source code line number to property comments
+type Properties map[int][]string
+
+// Associate properties to line in the source code
+func (ps Properties) AddProperties(prop []string, line int) {
+	ps[line] = append(ps[line], prop...)
+}
+
+// Gets properties for a spesific line. Returned properties are removed from the structure
+func (ps Properties) GetProperties(postition token.Position) []string {
+	props := ps[postition.Line]
+	delete(ps, postition.Line)
+	return props
+}
+
+// Non destructivly gets all properties in structure
+func (ps Properties) Values() []string {
+	vals := make([]string, 0)
+	for _, v := range ps {
+		vals = append(vals, v...)
+	}
+	return vals
+}
+
+func (ps Properties) IsEmpty() bool {
+	return len(ps) == 0
 }
